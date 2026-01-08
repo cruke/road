@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>POV Lane – Extreme Curves + Wide Dash Gaps</title>
+<title>POV Lane – Extreme Curves + Wide Dash Gaps + Wake Lock + Auto Save</title>
 <style>
   html,body{margin:0;height:100%;background:#111;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
   .bar{
@@ -14,12 +14,16 @@
   input[type="range"]{width:170px;}
   .btn{padding:6px 10px;border:1px solid #333;background:#1b1b1b;color:#eee;border-radius:8px;cursor:pointer;}
   canvas{display:block;width:100%;height:calc(100vh - 56px);}
+  .pill{padding:4px 8px;border:1px solid #333;border-radius:999px;background:#1b1b1b;font-size:12px;opacity:.9}
+  .pill.ok{border-color:#2b5;background:#132;}
+  .pill.bad{border-color:#b44;background:#211;}
 </style>
 </head>
 <body>
 
 <div class="bar">
   <button class="btn" id="pauseBtn">Pause</button>
+  <span class="pill" id="wakePill" title="Screen Wake Lock status">Wake: off</span>
 
   <label>Speed <span id="speedVal">8</span>
     <input id="speed" type="range" min="1" max="25" value="8">
@@ -71,6 +75,7 @@
     curveMax: document.getElementById("curveMax"),
     curveRate: document.getElementById("curveRate"),
     pauseBtn: document.getElementById("pauseBtn"),
+    wakePill: document.getElementById("wakePill"),
   };
   const val = {
     speed: document.getElementById("speedVal"),
@@ -84,9 +89,104 @@
   };
 
   const WHITE = "rgb(255,255,255)";
-  let paused=false;
-  let t=0, last=performance.now();
 
+  // ===== Auto-save settings (localStorage) =====
+  const STORE_KEY = "pov_lane_settings_v1";
+  const DEFAULTS = {
+    speed: "8",
+    laneW: "0.62",
+    dashLen: "32",
+    dashGap: "120",
+    gapStr: "6",
+    thick: "1.5",
+    curveMax: "1.25",
+    curveRate: "1.00",
+    paused: false
+  };
+
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(!raw) return;
+      const s = JSON.parse(raw);
+      for (const k of Object.keys(DEFAULTS)){
+        if (k in s && s[k] !== null && s[k] !== undefined){
+          if (k === "paused") continue;
+          if (el[k]) el[k].value = String(s[k]);
+        }
+      }
+      if (typeof s.paused === "boolean") paused = s.paused;
+    }catch(e){}
+  }
+
+  let saveTimer = null;
+  function saveSettingsSoon(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const s = {
+        speed: el.speed.value,
+        laneW: el.laneW.value,
+        dashLen: el.dashLen.value,
+        dashGap: el.dashGap.value,
+        gapStr: el.gapStr.value,
+        thick: el.thick.value,
+        curveMax: el.curveMax.value,
+        curveRate: el.curveRate.value,
+        paused
+      };
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }catch(e){}
+    }, 120);
+  }
+
+  function bindAutoSave(){
+    const ids = ["speed","laneW","dashLen","dashGap","gapStr","thick","curveMax","curveRate"];
+    ids.forEach(id => {
+      const node = el[id];
+      node.addEventListener("input", saveSettingsSoon);
+      node.addEventListener("change", saveSettingsSoon);
+    });
+  }
+
+  // ===== Wake Lock (Screen) =====
+  let wakeLock = null;
+
+  function setWakeUI(state, cls) {
+    el.wakePill.textContent = `Wake: ${state}`;
+    el.wakePill.classList.remove("ok","bad");
+    if (cls) el.wakePill.classList.add(cls);
+  }
+
+  async function requestWakeLock() {
+    try {
+      if (!("wakeLock" in navigator)) { setWakeUI("unsupported", "bad"); return; }
+      if (wakeLock) return;
+      wakeLock = await navigator.wakeLock.request("screen");
+      setWakeUI("on", "ok");
+      wakeLock.addEventListener("release", () => {
+        wakeLock = null;
+        if (!paused && document.visibilityState === "visible") setWakeUI("releasing…", null);
+        else setWakeUI("off", null);
+      });
+    } catch (err) {
+      setWakeUI("blocked", "bad");
+      wakeLock = null;
+    }
+  }
+
+  async function releaseWakeLock() {
+    try { if (wakeLock) { await wakeLock.release(); wakeLock = null; } }
+    finally { setWakeUI("off", null); }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      if (!paused) requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  });
+
+  // ===== Canvas sizing =====
   function resize(){
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.floor(cv.clientWidth * dpr);
@@ -95,7 +195,11 @@
   }
   window.addEventListener("resize", resize);
 
-  // --- Extreme random curve state ---
+  // ===== Motion state =====
+  let paused = DEFAULTS.paused;
+  let t=0, last=performance.now();
+
+  // ===== Extreme random curve state =====
   let currentCurve = 0;
   let targetCurve = 0;
   let nextChange = 0;
@@ -104,12 +208,9 @@
 
   function newCurve(){
     const max = +el.curveMax.value;
-
-    // bias toward big turns (use squared random)
     const r = Math.random();
-    const mag = (0.15 + (r*r)*0.85) * max; // weighted to larger
-
-    const flip = (Math.random() < 0.40);    // more S-turn feeling
+    const mag = (0.15 + (r*r)*0.85) * max;
+    const flip = (Math.random() < 0.40);
     const straight = (Math.random() < 0.06);
 
     if (straight) targetCurve = (Math.random()*0.10 - 0.05) * max;
@@ -122,16 +223,23 @@
     nextChange = performance.now() + (minMs + Math.random()*(maxMs-minMs));
   }
 
-  // Perspective mapping
+  // ===== Perspective mapping =====
   function yFromZ(z,H){
     const p=2.15;
     return (Math.pow(z,p))*(H*0.90) + (H*0.08);
   }
-
-  // Center shift (extreme)
   function centerX(z,W){
     const ahead = (1 - z);
     return currentCurve * (ahead*ahead) * W * 0.48;
+  }
+
+  async function setPaused(nextPaused){
+    paused = nextPaused;
+    el.pauseBtn.textContent = paused ? "Resume" : "Pause";
+    saveSettingsSoon();
+
+    if (!paused) await requestWakeLock();
+    else await releaseWakeLock();
   }
 
   function draw(){
@@ -163,12 +271,10 @@
 
     if(!paused && now>nextChange) newCurve();
 
-    // faster easing affected by curveRate
     const rate = +el.curveRate.value;
     const ease = 1 - Math.pow(0.0009, (dt/1000) * rate);
-    currentCurve += (targetCurve-currentCurve) * Math.min(1,ease);
+    currentCurve += (targetCurve-currentCurve) * Math.min(1, ease);
 
-    // clamp
     const max = +el.curveMax.value;
     currentCurve = Math.max(-max, Math.min(max, currentCurve));
 
@@ -202,7 +308,6 @@
     function drawEdge(side){
       ctx.strokeStyle = WHITE;
       ctx.lineWidth = thick * 10.0;
-
       ctx.beginPath();
       for(let i=0;i<=samples;i++){
         const z=i/samples;
@@ -215,11 +320,11 @@
     drawEdge(-1);
     drawEdge( 1);
 
-    // Dashed middle (forward driving) — wide gaps with "Gap strength"
+    // Dashed middle (forward driving) — wide gaps
     const scroll = t * 0.0025;
 
-    const gapScale = +el.gapStr.value;  // slider-controlled
-    const lenScale = 2.0;               // keeps dash visible vs big gaps
+    const gapScale = +el.gapStr.value;
+    const lenScale = 2.0;
 
     const effDashL = dashL * lenScale;
     const effDashG = dashG * gapScale;
@@ -227,7 +332,6 @@
     const period = effDashL + effDashG;
     const laneDepth = 2200;
 
-    // big gap => fewer dashes (no crowding)
     const dashCount = Math.ceil(laneDepth / period) + 3;
 
     for(let k=0;k<dashCount;k++){
@@ -253,13 +357,24 @@
     requestAnimationFrame(draw);
   }
 
-  el.pauseBtn.onclick=()=>{
-    paused=!paused;
-    el.pauseBtn.textContent=paused?"Resume":"Pause";
-  };
+  // ---- Init ----
+  // set defaults first, then load saved settings (overrides defaults)
+  Object.entries(DEFAULTS).forEach(([k,v]) => {
+    if (k === "paused") return;
+    if (el[k]) el[k].value = String(v);
+  });
+
+  loadSettings();
+  bindAutoSave();
+
+  el.pauseBtn.onclick = () => setPaused(!paused);
 
   resize();
   newCurve();
+  setWakeUI("off", null);
+  // set initial pause button text
+  el.pauseBtn.textContent = paused ? "Resume" : "Pause";
+  // if starting unpaused, try to hold wake lock once user interacts (browser policy)
   requestAnimationFrame(draw);
 })();
 </script>
