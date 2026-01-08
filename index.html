@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>POV Lane – Extreme Curves + Wide Dash Gaps</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+  .bar{
+    display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    padding:10px 12px;border-bottom:1px solid #2a2a2a;background:#141414;font-size:14px;
+  }
+  label{display:flex;align-items:center;gap:8px;white-space:nowrap;}
+  input[type="range"]{width:170px;}
+  .btn{padding:6px 10px;border:1px solid #333;background:#1b1b1b;color:#eee;border-radius:8px;cursor:pointer;}
+  canvas{display:block;width:100%;height:calc(100vh - 56px);}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button class="btn" id="pauseBtn">Pause</button>
+
+  <label>Speed <span id="speedVal">8</span>
+    <input id="speed" type="range" min="1" max="25" value="8">
+  </label>
+
+  <label>Lane width <span id="laneVal">0.62</span>
+    <input id="laneW" type="range" min="0.35" max="0.9" step="0.01" value="0.62">
+  </label>
+
+  <label>Dash length <span id="dashLenVal">32</span>
+    <input id="dashLen" type="range" min="10" max="80" value="32">
+  </label>
+
+  <label>Dash gap <span id="dashGapVal">120</span>
+    <input id="dashGap" type="range" min="10" max="800" value="120">
+  </label>
+
+  <label>Gap strength <span id="gapStrVal">6.0</span>
+    <input id="gapStr" type="range" min="1" max="12" step="0.5" value="6">
+  </label>
+
+  <label>Line thickness <span id="thickVal">1.5</span>
+    <input id="thick" type="range" min="0.7" max="2.5" step="0.05" value="1.5">
+  </label>
+
+  <label>Curve extreme <span id="curveMaxVal">1.25</span>
+    <input id="curveMax" type="range" min="0.2" max="2.0" step="0.05" value="1.25">
+  </label>
+
+  <label>Curve change rate <span id="curveRateVal">1.00</span>
+    <input id="curveRate" type="range" min="0.25" max="2.5" step="0.05" value="1.00">
+  </label>
+</div>
+
+<canvas id="cv"></canvas>
+
+<script>
+(() => {
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d", { alpha:false });
+
+  const el = {
+    speed: document.getElementById("speed"),
+    laneW: document.getElementById("laneW"),
+    dashLen: document.getElementById("dashLen"),
+    dashGap: document.getElementById("dashGap"),
+    gapStr: document.getElementById("gapStr"),
+    thick: document.getElementById("thick"),
+    curveMax: document.getElementById("curveMax"),
+    curveRate: document.getElementById("curveRate"),
+    pauseBtn: document.getElementById("pauseBtn"),
+  };
+  const val = {
+    speed: document.getElementById("speedVal"),
+    laneW: document.getElementById("laneVal"),
+    dashLen: document.getElementById("dashLenVal"),
+    dashGap: document.getElementById("dashGapVal"),
+    gapStr: document.getElementById("gapStrVal"),
+    thick: document.getElementById("thickVal"),
+    curveMax: document.getElementById("curveMaxVal"),
+    curveRate: document.getElementById("curveRateVal"),
+  };
+
+  const WHITE = "rgb(255,255,255)";
+  let paused=false;
+  let t=0, last=performance.now();
+
+  function resize(){
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.floor(cv.clientWidth * dpr);
+    cv.height = Math.floor(cv.clientHeight * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener("resize", resize);
+
+  // --- Extreme random curve state ---
+  let currentCurve = 0;
+  let targetCurve = 0;
+  let nextChange = 0;
+
+  function randSigned(){ return (Math.random()<0.5?-1:1); }
+
+  function newCurve(){
+    const max = +el.curveMax.value;
+
+    // bias toward big turns (use squared random)
+    const r = Math.random();
+    const mag = (0.15 + (r*r)*0.85) * max; // weighted to larger
+
+    const flip = (Math.random() < 0.40);    // more S-turn feeling
+    const straight = (Math.random() < 0.06);
+
+    if (straight) targetCurve = (Math.random()*0.10 - 0.05) * max;
+    else if (flip) targetCurve = -Math.sign(currentCurve || 1) * mag;
+    else targetCurve = randSigned() * mag;
+
+    const rate = +el.curveRate.value;
+    const minMs = 380 / rate;
+    const maxMs = 1150 / rate;
+    nextChange = performance.now() + (minMs + Math.random()*(maxMs-minMs));
+  }
+
+  // Perspective mapping
+  function yFromZ(z,H){
+    const p=2.15;
+    return (Math.pow(z,p))*(H*0.90) + (H*0.08);
+  }
+
+  // Center shift (extreme)
+  function centerX(z,W){
+    const ahead = (1 - z);
+    return currentCurve * (ahead*ahead) * W * 0.48;
+  }
+
+  function draw(){
+    const now=performance.now();
+    const dt=now-last;
+    last=now;
+
+    const W=cv.clientWidth, H=cv.clientHeight;
+
+    const speed=+el.speed.value;
+    const laneWv=+el.laneW.value;
+    const dashL=+el.dashLen.value;
+    const dashG=+el.dashGap.value;
+    const gapStr=+el.gapStr.value;
+    const thick=+el.thick.value;
+    const curveMax=+el.curveMax.value;
+    const curveRate=+el.curveRate.value;
+
+    val.speed.textContent=speed;
+    val.laneW.textContent=laneWv.toFixed(2);
+    val.dashLen.textContent=dashL;
+    val.dashGap.textContent=dashG;
+    val.gapStr.textContent=(+gapStr).toFixed(1);
+    val.thick.textContent=thick.toFixed(2);
+    val.curveMax.textContent=curveMax.toFixed(2);
+    val.curveRate.textContent=curveRate.toFixed(2);
+
+    if(!paused) t += dt*speed;
+
+    if(!paused && now>nextChange) newCurve();
+
+    // faster easing affected by curveRate
+    const rate = +el.curveRate.value;
+    const ease = 1 - Math.pow(0.0009, (dt/1000) * rate);
+    currentCurve += (targetCurve-currentCurve) * Math.min(1,ease);
+
+    // clamp
+    const max = +el.curveMax.value;
+    currentCurve = Math.max(-max, Math.min(max, currentCurve));
+
+    // Background
+    ctx.fillStyle="#0b0f1a";
+    ctx.fillRect(0,0,W,H);
+
+    // Road
+    const topW=W*0.11, botW=W*1.40;
+    const hy=H*0.08, by=H*0.98;
+
+    ctx.fillStyle="#1a1a1a";
+    ctx.beginPath();
+    ctx.moveTo(W/2-topW/2, hy);
+    ctx.lineTo(W/2+topW/2, hy);
+    ctx.lineTo(W/2+botW/2, by);
+    ctx.lineTo(W/2-botW/2, by);
+    ctx.closePath();
+    ctx.fill();
+
+    // Square ends
+    ctx.lineCap="butt";
+    ctx.lineJoin="miter";
+
+    // Geometry
+    const samples=260;
+    const roadW = z => topW + (botW-topW)*z;
+    const halfLane = z => roadW(z)*laneWv*0.5;
+
+    // Continuous side lines
+    function drawEdge(side){
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = thick * 10.0;
+
+      ctx.beginPath();
+      for(let i=0;i<=samples;i++){
+        const z=i/samples;
+        const y=yFromZ(z,H);
+        const x=(W/2 + centerX(z,W)) + side*halfLane(z);
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    drawEdge(-1);
+    drawEdge( 1);
+
+    // Dashed middle (forward driving) — wide gaps with "Gap strength"
+    const scroll = t * 0.0025;
+
+    const gapScale = +el.gapStr.value;  // slider-controlled
+    const lenScale = 2.0;               // keeps dash visible vs big gaps
+
+    const effDashL = dashL * lenScale;
+    const effDashG = dashG * gapScale;
+
+    const period = effDashL + effDashG;
+    const laneDepth = 2200;
+
+    // big gap => fewer dashes (no crowding)
+    const dashCount = Math.ceil(laneDepth / period) + 3;
+
+    for(let k=0;k<dashCount;k++){
+      const base = (k*period + scroll*150) % laneDepth;
+
+      const zs = base / laneDepth;
+      const ze = (base + effDashL) / laneDepth;
+      if(ze>1) continue;
+
+      const y1=yFromZ(zs,H), y2=yFromZ(ze,H);
+      const x1=W/2 + centerX(zs,W);
+      const x2=W/2 + centerX(ze,W);
+
+      ctx.strokeStyle = WHITE;
+      ctx.lineWidth = thick * (4.0 + ((zs+ze)/2)*10.5);
+
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.lineTo(x2,y2);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  el.pauseBtn.onclick=()=>{
+    paused=!paused;
+    el.pauseBtn.textContent=paused?"Resume":"Pause";
+  };
+
+  resize();
+  newCurve();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
