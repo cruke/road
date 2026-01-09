@@ -104,8 +104,6 @@
 
   // ===== Auto-save (localStorage) =====
   const STORE_KEY = "pov_lane_settings_v4";
-
-  // DEFAULTS updated to match your screenshot
   const DEFAULTS = {
     speed: "2",
     laneW: "0.56",
@@ -250,10 +248,17 @@
 
   // ===== Cones =====
   const cones = [];
-  let nextConeAtTravel = 700;
+  let nextConeAtTravel = Infinity; // will be set by scheduler
 
-  function coneSpacing(speed){
-    const freq = +el.coneFreq.value; // higher => more cones
+  function scheduleNextCone(speed){
+    const freq = +el.coneFreq.value;
+
+    // freq == 0 => disable cones completely
+    if (freq <= 0) {
+      nextConeAtTravel = Infinity;
+      return;
+    }
+
     const baseMin = 700;
     const baseMax = 1900;
 
@@ -265,15 +270,13 @@
     const min = baseMin * speedFactor * freqFactor;
     const max = baseMax * speedFactor * freqFactor;
 
-    return min + Math.random() * (max - min);
+    const spacing = min + Math.random() * (max - min);
+    nextConeAtTravel = travel + spacing;
   }
 
   function spawnCone(speed){
     const side = Math.random() < 0.5 ? -1 : 1;
-
-    // exactly mid between dashed centerline and side line
-    const midFactor = 0.5;
-
+    const midFactor = 0.5; // midpoint between center dashed and side line
     const zStart = Math.random() * 0.04;
 
     cones.push({
@@ -283,7 +286,7 @@
       factor: midFactor
     });
 
-    nextConeAtTravel = travel + coneSpacing(speed);
+    scheduleNextCone(speed);
   }
 
   function drawCone(x, y, scale){
@@ -292,11 +295,9 @@
     const topW = 5.5 * scale;
     const baseH = 4.5 * scale;
 
-    // base
     ctx.fillStyle = "#222";
     ctx.fillRect(x - (w*0.65), y - baseH, w*1.3, baseH);
 
-    // cone body (no stripe)
     ctx.fillStyle = "#ff7a00";
     ctx.beginPath();
     ctx.moveTo(x - w/2, y - baseH);
@@ -347,7 +348,9 @@
     if (!paused) {
       t += dt * speed;
       travel += (dt * speed) * 0.0025 * 150;
-      if (travel >= nextConeAtTravel) spawnCone(speed);
+
+      // spawn cones only if enabled AND time reached
+      if (coneFreq > 0 && travel >= nextConeAtTravel) spawnCone(speed);
     }
 
     if (!paused && now > nextChange) newCurve();
@@ -357,11 +360,9 @@
     currentCurve += (targetCurve - currentCurve) * Math.min(1, ease);
     currentCurve = Math.max(-curveMax, Math.min(curveMax, currentCurve));
 
-    // Background
     ctx.fillStyle = "#0b0f1a";
     ctx.fillRect(0,0,W,H);
 
-    // Road
     const topW = W * 0.11, botW = W * 1.40;
     const hy = H * 0.08, by = H * 0.98;
 
@@ -374,16 +375,13 @@
     ctx.closePath();
     ctx.fill();
 
-    // Square ends
     ctx.lineCap = "butt";
     ctx.lineJoin = "miter";
 
-    // Geometry
     const samples = 260;
     const roadW = z => topW + (botW - topW) * z;
     const halfLane = z => roadW(z) * laneWv * 0.5;
 
-    // Side lines
     function drawEdge(side){
       ctx.strokeStyle = WHITE;
       ctx.lineWidth = thick * 10.0;
@@ -399,7 +397,6 @@
     drawEdge(-1);
     drawEdge( 1);
 
-    // Dashed middle — wide gaps
     const laneDepth = 2200;
     const gapScale = +el.gapStr.value;
     const lenScale = 2.0;
@@ -429,7 +426,7 @@
       ctx.stroke();
     }
 
-    // Cones — centered between dashed and side line
+    // Draw cones (existing ones continue moving even if freq is turned to 0)
     for (let i = cones.length - 1; i >= 0; i--) {
       const c = cones[i];
       const delta = (travel - c.spawnTravel);
@@ -451,14 +448,21 @@
   }
 
   // ---- Init ----
-  // Apply defaults first (now matching your screenshot), then load saved settings (if any)
   Object.entries(DEFAULTS).forEach(([k,v]) => {
     if (k === "paused") return;
     if (el[k]) el[k].value = String(v);
   });
 
-  loadSettings();      // overrides defaults if user has saved settings already
+  loadSettings();
   bindAutoSave();
+
+  // When coneFreq changes to 0, disable future spawns immediately
+  el.coneFreq.addEventListener("input", () => {
+    saveSettingsSoon();
+    const f = +el.coneFreq.value;
+    if (f <= 0) nextConeAtTravel = Infinity;
+    else scheduleNextCone(+el.speed.value);
+  });
 
   el.pauseBtn.onclick = () => setPaused(!paused);
 
@@ -467,7 +471,8 @@
   setWakeUI("off", null);
   el.pauseBtn.textContent = paused ? "Resume" : "Pause";
 
-  nextConeAtTravel = coneSpacing(+el.speed.value);
+  // initial schedule (respects coneFreq == 0)
+  scheduleNextCone(+el.speed.value);
 
   requestAnimationFrame(draw);
 })();
