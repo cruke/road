@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>POV Lane – Extreme Curves + Wide Dash Gaps + Wake Lock + Auto Save</title>
+<title>POV Lane – Cones Mid-Lane + Size/Frequency</title>
 <style>
   html,body{margin:0;height:100%;background:#111;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
   .bar{
@@ -25,36 +25,44 @@
   <button class="btn" id="pauseBtn">Pause</button>
   <span class="pill" id="wakePill" title="Screen Wake Lock status">Wake: off</span>
 
-  <label>Speed <span id="speedVal">8</span>
-    <input id="speed" type="range" min="1" max="25" value="8">
+  <label>Speed <span id="speedVal">2</span>
+    <input id="speed" type="range" min="1" max="25" value="2">
   </label>
 
-  <label>Lane width <span id="laneVal">0.62</span>
-    <input id="laneW" type="range" min="0.15" max="0.9" step="0.01" value="0.62">
+  <label>Lane width <span id="laneVal">0.56</span>
+    <input id="laneW" type="range" min="0.35" max="0.9" step="0.01" value="0.56">
   </label>
 
-  <label>Dash length <span id="dashLenVal">32</span>
-    <input id="dashLen" type="range" min="10" max="80" value="32">
+  <label>Dash length <span id="dashLenVal">80</span>
+    <input id="dashLen" type="range" min="10" max="80" value="80">
   </label>
 
-  <label>Dash gap <span id="dashGapVal">120</span>
-    <input id="dashGap" type="range" min="10" max="800" value="120">
+  <label>Dash gap <span id="dashGapVal">153</span>
+    <input id="dashGap" type="range" min="10" max="800" value="153">
   </label>
 
-  <label>Gap strength <span id="gapStrVal">6.0</span>
-    <input id="gapStr" type="range" min="1" max="12" step="0.5" value="6">
+  <label>Gap strength <span id="gapStrVal">7.5</span>
+    <input id="gapStr" type="range" min="1" max="12" step="0.5" value="7.5">
   </label>
 
-  <label>Line thickness <span id="thickVal">1.5</span>
-    <input id="thick" type="range" min="0.7" max="2.5" step="0.05" value="1.5">
+  <label>Line thickness <span id="thickVal">1.70</span>
+    <input id="thick" type="range" min="0.7" max="2.5" step="0.05" value="1.70">
   </label>
 
-  <label>Curve extreme <span id="curveMaxVal">1.25</span>
-    <input id="curveMax" type="range" min="0.2" max="2.0" step="0.05" value="1.25">
+  <label>Curve extreme <span id="curveMaxVal">1.85</span>
+    <input id="curveMax" type="range" min="0.2" max="2.0" step="0.05" value="1.85">
   </label>
 
-  <label>Curve change rate <span id="curveRateVal">1.00</span>
-    <input id="curveRate" type="range" min="0.25" max="2.5" step="0.05" value="1.00">
+  <label>Curve change rate <span id="curveRateVal">1.35</span>
+    <input id="curveRate" type="range" min="0.25" max="2.5" step="0.05" value="1.35">
+  </label>
+
+  <label>Cone size <span id="coneSizeVal">3.00</span>
+    <input id="coneSize" type="range" min="0.5" max="6.0" step="0.05" value="3.00">
+  </label>
+
+  <label>Cone frequency <span id="coneFreqVal">1.00</span>
+    <input id="coneFreq" type="range" min="0.2" max="3.0" step="0.05" value="1.00">
   </label>
 </div>
 
@@ -74,6 +82,8 @@
     thick: document.getElementById("thick"),
     curveMax: document.getElementById("curveMax"),
     curveRate: document.getElementById("curveRate"),
+    coneSize: document.getElementById("coneSize"),
+    coneFreq: document.getElementById("coneFreq"),
     pauseBtn: document.getElementById("pauseBtn"),
     wakePill: document.getElementById("wakePill"),
   };
@@ -86,23 +96,31 @@
     thick: document.getElementById("thickVal"),
     curveMax: document.getElementById("curveMaxVal"),
     curveRate: document.getElementById("curveRateVal"),
+    coneSize: document.getElementById("coneSizeVal"),
+    coneFreq: document.getElementById("coneFreqVal"),
   };
 
   const WHITE = "rgb(255,255,255)";
 
-  // ===== Auto-save settings (localStorage) =====
-  const STORE_KEY = "pov_lane_settings_v1";
+  // ===== Auto-save (localStorage) =====
+  const STORE_KEY = "pov_lane_settings_v4";
+
+  // DEFAULTS updated to match your screenshot
   const DEFAULTS = {
-    speed: "8",
-    laneW: "0.62",
-    dashLen: "32",
-    dashGap: "120",
-    gapStr: "6",
-    thick: "1.5",
-    curveMax: "1.25",
-    curveRate: "1.00",
+    speed: "2",
+    laneW: "0.56",
+    dashLen: "80",
+    dashGap: "153",
+    gapStr: "7.5",
+    thick: "1.70",
+    curveMax: "1.85",
+    curveRate: "1.35",
+    coneSize: "3.00",
+    coneFreq: "1.00",
     paused: false
   };
+
+  let paused = DEFAULTS.paused;
 
   function loadSettings(){
     try{
@@ -110,10 +128,9 @@
       if(!raw) return;
       const s = JSON.parse(raw);
       for (const k of Object.keys(DEFAULTS)){
-        if (k in s && s[k] !== null && s[k] !== undefined){
-          if (k === "paused") continue;
-          if (el[k]) el[k].value = String(s[k]);
-        }
+        if (!(k in s)) continue;
+        if (k === "paused") continue;
+        if (el[k]) el[k].value = String(s[k]);
       }
       if (typeof s.paused === "boolean") paused = s.paused;
     }catch(e){}
@@ -132,6 +149,8 @@
         thick: el.thick.value,
         curveMax: el.curveMax.value,
         curveRate: el.curveRate.value,
+        coneSize: el.coneSize.value,
+        coneFreq: el.coneFreq.value,
         paused
       };
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }catch(e){}
@@ -139,7 +158,7 @@
   }
 
   function bindAutoSave(){
-    const ids = ["speed","laneW","dashLen","dashGap","gapStr","thick","curveMax","curveRate"];
+    const ids = ["speed","laneW","dashLen","dashGap","gapStr","thick","curveMax","curveRate","coneSize","coneFreq"];
     ids.forEach(id => {
       const node = el[id];
       node.addEventListener("input", saveSettingsSoon);
@@ -147,37 +166,33 @@
     });
   }
 
-  // ===== Wake Lock (Screen) =====
+  // ===== Wake Lock =====
   let wakeLock = null;
-
   function setWakeUI(state, cls) {
     el.wakePill.textContent = `Wake: ${state}`;
     el.wakePill.classList.remove("ok","bad");
     if (cls) el.wakePill.classList.add(cls);
   }
-
   async function requestWakeLock() {
     try {
-      if (!("wakeLock" in navigator)) { setWakeUI("unsupported", "bad"); return; }
+      if (!("wakeLock" in navigator)) { setWakeUI("unsupported","bad"); return; }
       if (wakeLock) return;
       wakeLock = await navigator.wakeLock.request("screen");
-      setWakeUI("on", "ok");
+      setWakeUI("on","ok");
       wakeLock.addEventListener("release", () => {
         wakeLock = null;
         if (!paused && document.visibilityState === "visible") setWakeUI("releasing…", null);
         else setWakeUI("off", null);
       });
-    } catch (err) {
-      setWakeUI("blocked", "bad");
+    } catch (e) {
+      setWakeUI("blocked","bad");
       wakeLock = null;
     }
   }
-
   async function releaseWakeLock() {
     try { if (wakeLock) { await wakeLock.release(); wakeLock = null; } }
     finally { setWakeUI("off", null); }
   }
-
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       if (!paused) requestWakeLock();
@@ -195,11 +210,11 @@
   }
   window.addEventListener("resize", resize);
 
-  // ===== Motion state =====
-  let paused = DEFAULTS.paused;
-  let t=0, last=performance.now();
+  // ===== Motion =====
+  let t = 0, last = performance.now();
+  let travel = 0;
 
-  // ===== Extreme random curve state =====
+  // ===== Extreme curve =====
   let currentCurve = 0;
   let targetCurve = 0;
   let nextChange = 0;
@@ -223,7 +238,7 @@
     nextChange = performance.now() + (minMs + Math.random()*(maxMs-minMs));
   }
 
-  // ===== Perspective mapping =====
+  // ===== Perspective =====
   function yFromZ(z,H){
     const p=2.15;
     return (Math.pow(z,p))*(H*0.90) + (H*0.08);
@@ -233,83 +248,147 @@
     return currentCurve * (ahead*ahead) * W * 0.48;
   }
 
+  // ===== Cones =====
+  const cones = [];
+  let nextConeAtTravel = 700;
+
+  function coneSpacing(speed){
+    const freq = +el.coneFreq.value; // higher => more cones
+    const baseMin = 700;
+    const baseMax = 1900;
+
+    const s = Math.max(1, Math.min(25, speed));
+    const speedFactor = 1.15 - (s / 25) * 0.45;
+
+    const freqFactor = 1 / Math.max(0.05, freq);
+
+    const min = baseMin * speedFactor * freqFactor;
+    const max = baseMax * speedFactor * freqFactor;
+
+    return min + Math.random() * (max - min);
+  }
+
+  function spawnCone(speed){
+    const side = Math.random() < 0.5 ? -1 : 1;
+
+    // exactly mid between dashed centerline and side line
+    const midFactor = 0.5;
+
+    const zStart = Math.random() * 0.04;
+
+    cones.push({
+      spawnTravel: travel,
+      baseStart: zStart,
+      side,
+      factor: midFactor
+    });
+
+    nextConeAtTravel = travel + coneSpacing(speed);
+  }
+
+  function drawCone(x, y, scale){
+    const h = 18 * scale;
+    const w = 14 * scale;
+    const topW = 5.5 * scale;
+    const baseH = 4.5 * scale;
+
+    // base
+    ctx.fillStyle = "#222";
+    ctx.fillRect(x - (w*0.65), y - baseH, w*1.3, baseH);
+
+    // cone body (no stripe)
+    ctx.fillStyle = "#ff7a00";
+    ctx.beginPath();
+    ctx.moveTo(x - w/2, y - baseH);
+    ctx.lineTo(x + w/2, y - baseH);
+    ctx.lineTo(x + topW/2, y - baseH - h);
+    ctx.lineTo(x - topW/2, y - baseH - h);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   async function setPaused(nextPaused){
     paused = nextPaused;
     el.pauseBtn.textContent = paused ? "Resume" : "Pause";
     saveSettingsSoon();
-
     if (!paused) await requestWakeLock();
     else await releaseWakeLock();
   }
 
   function draw(){
-    const now=performance.now();
-    const dt=now-last;
-    last=now;
+    const now = performance.now();
+    const dt = now - last;
+    last = now;
 
-    const W=cv.clientWidth, H=cv.clientHeight;
+    const W = cv.clientWidth, H = cv.clientHeight;
 
-    const speed=+el.speed.value;
-    const laneWv=+el.laneW.value;
-    const dashL=+el.dashLen.value;
-    const dashG=+el.dashGap.value;
-    const gapStr=+el.gapStr.value;
-    const thick=+el.thick.value;
-    const curveMax=+el.curveMax.value;
-    const curveRate=+el.curveRate.value;
+    const speed = +el.speed.value;
+    const laneWv = +el.laneW.value;
+    const dashL = +el.dashLen.value;
+    const dashG = +el.dashGap.value;
+    const gapStr = +el.gapStr.value;
+    const thick = +el.thick.value;
+    const curveMax = +el.curveMax.value;
+    const curveRate = +el.curveRate.value;
+    const coneSize = +el.coneSize.value;
+    const coneFreq = +el.coneFreq.value;
 
-    val.speed.textContent=speed;
-    val.laneW.textContent=laneWv.toFixed(2);
-    val.dashLen.textContent=dashL;
-    val.dashGap.textContent=dashG;
-    val.gapStr.textContent=(+gapStr).toFixed(1);
-    val.thick.textContent=thick.toFixed(2);
-    val.curveMax.textContent=curveMax.toFixed(2);
-    val.curveRate.textContent=curveRate.toFixed(2);
+    val.speed.textContent = speed;
+    val.laneW.textContent = laneWv.toFixed(2);
+    val.dashLen.textContent = dashL;
+    val.dashGap.textContent = dashG;
+    val.gapStr.textContent = (+gapStr).toFixed(1);
+    val.thick.textContent = thick.toFixed(2);
+    val.curveMax.textContent = curveMax.toFixed(2);
+    val.curveRate.textContent = curveRate.toFixed(2);
+    val.coneSize.textContent = coneSize.toFixed(2);
+    val.coneFreq.textContent = coneFreq.toFixed(2);
 
-    if(!paused) t += dt*speed;
+    if (!paused) {
+      t += dt * speed;
+      travel += (dt * speed) * 0.0025 * 150;
+      if (travel >= nextConeAtTravel) spawnCone(speed);
+    }
 
-    if(!paused && now>nextChange) newCurve();
+    if (!paused && now > nextChange) newCurve();
 
     const rate = +el.curveRate.value;
     const ease = 1 - Math.pow(0.0009, (dt/1000) * rate);
-    currentCurve += (targetCurve-currentCurve) * Math.min(1, ease);
-
-    const max = +el.curveMax.value;
-    currentCurve = Math.max(-max, Math.min(max, currentCurve));
+    currentCurve += (targetCurve - currentCurve) * Math.min(1, ease);
+    currentCurve = Math.max(-curveMax, Math.min(curveMax, currentCurve));
 
     // Background
-    ctx.fillStyle="#0b0f1a";
+    ctx.fillStyle = "#0b0f1a";
     ctx.fillRect(0,0,W,H);
 
     // Road
-    const topW=W*0.11, botW=W*1.40;
-    const hy=H*0.08, by=H*0.98;
+    const topW = W * 0.11, botW = W * 1.40;
+    const hy = H * 0.08, by = H * 0.98;
 
-    ctx.fillStyle="#1a1a1a";
+    ctx.fillStyle = "#1a1a1a";
     ctx.beginPath();
-    ctx.moveTo(W/2-topW/2, hy);
-    ctx.lineTo(W/2+topW/2, hy);
-    ctx.lineTo(W/2+botW/2, by);
-    ctx.lineTo(W/2-botW/2, by);
+    ctx.moveTo(W/2 - topW/2, hy);
+    ctx.lineTo(W/2 + topW/2, hy);
+    ctx.lineTo(W/2 + botW/2, by);
+    ctx.lineTo(W/2 - botW/2, by);
     ctx.closePath();
     ctx.fill();
 
     // Square ends
-    ctx.lineCap="butt";
-    ctx.lineJoin="miter";
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
 
     // Geometry
-    const samples=260;
-    const roadW = z => topW + (botW-topW)*z;
-    const halfLane = z => roadW(z)*laneWv*0.5;
+    const samples = 260;
+    const roadW = z => topW + (botW - topW) * z;
+    const halfLane = z => roadW(z) * laneWv * 0.5;
 
-    // Continuous side lines
+    // Side lines
     function drawEdge(side){
       ctx.strokeStyle = WHITE;
       ctx.lineWidth = thick * 10.0;
       ctx.beginPath();
-      for(let i=0;i<=samples;i++){
+      for (let i=0;i<=samples;i++){
         const z=i/samples;
         const y=yFromZ(z,H);
         const x=(W/2 + centerX(z,W)) + side*halfLane(z);
@@ -320,9 +399,8 @@
     drawEdge(-1);
     drawEdge( 1);
 
-    // Dashed middle (forward driving) — wide gaps
-    const scroll = t * 0.0025;
-
+    // Dashed middle — wide gaps
+    const laneDepth = 2200;
     const gapScale = +el.gapStr.value;
     const lenScale = 2.0;
 
@@ -330,20 +408,17 @@
     const effDashG = dashG * gapScale;
 
     const period = effDashL + effDashG;
-    const laneDepth = 2200;
-
     const dashCount = Math.ceil(laneDepth / period) + 3;
 
-    for(let k=0;k<dashCount;k++){
-      const base = (k*period + scroll*150) % laneDepth;
-
+    for (let k=0;k<dashCount;k++){
+      const base = (k * period + (travel % laneDepth)) % laneDepth;
       const zs = base / laneDepth;
       const ze = (base + effDashL) / laneDepth;
-      if(ze>1) continue;
+      if (ze > 1) continue;
 
-      const y1=yFromZ(zs,H), y2=yFromZ(ze,H);
-      const x1=W/2 + centerX(zs,W);
-      const x2=W/2 + centerX(ze,W);
+      const y1 = yFromZ(zs,H), y2 = yFromZ(ze,H);
+      const x1 = W/2 + centerX(zs,W);
+      const x2 = W/2 + centerX(ze,W);
 
       ctx.strokeStyle = WHITE;
       ctx.lineWidth = thick * (4.0 + ((zs+ze)/2)*10.5);
@@ -354,17 +429,35 @@
       ctx.stroke();
     }
 
+    // Cones — centered between dashed and side line
+    for (let i = cones.length - 1; i >= 0; i--) {
+      const c = cones[i];
+      const delta = (travel - c.spawnTravel);
+      const z = c.baseStart + (delta / laneDepth);
+
+      if (z > 1.02) { cones.splice(i, 1); continue; }
+
+      const y = yFromZ(z, H);
+      const cx = W/2 + centerX(z, W);
+      const x = cx + c.side * (halfLane(z) * c.factor);
+
+      const persp = (0.55 + z * 2.2);
+      const scale = persp * coneSize;
+
+      drawCone(x, y, scale);
+    }
+
     requestAnimationFrame(draw);
   }
 
   // ---- Init ----
-  // set defaults first, then load saved settings (overrides defaults)
+  // Apply defaults first (now matching your screenshot), then load saved settings (if any)
   Object.entries(DEFAULTS).forEach(([k,v]) => {
     if (k === "paused") return;
     if (el[k]) el[k].value = String(v);
   });
 
-  loadSettings();
+  loadSettings();      // overrides defaults if user has saved settings already
   bindAutoSave();
 
   el.pauseBtn.onclick = () => setPaused(!paused);
@@ -372,9 +465,10 @@
   resize();
   newCurve();
   setWakeUI("off", null);
-  // set initial pause button text
   el.pauseBtn.textContent = paused ? "Resume" : "Pause";
-  // if starting unpaused, try to hold wake lock once user interacts (browser policy)
+
+  nextConeAtTravel = coneSpacing(+el.speed.value);
+
   requestAnimationFrame(draw);
 })();
 </script>
